@@ -3,6 +3,9 @@ package top.kenyon.kenyonsecurity.controller;
 import cn.hutool.captcha.CaptchaUtil;
 import cn.hutool.captcha.CircleCaptcha;
 import cn.hutool.captcha.ShearCaptcha;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.WebAuthenticationDetails;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -35,6 +38,13 @@ public class HelloController {
     @GetMapping("/user/hello")
     public String user(){
         return "user";
+    }
+
+    @GetMapping("getUserDetails")
+    public Object getUserDetails(){
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        WebAuthenticationDetails details = (WebAuthenticationDetails) authentication.getDetails();
+        return details;
     }
 
     @GetMapping("/verifyCode")

@@ -13,17 +13,21 @@ import org.springframework.security.config.annotation.web.builders.WebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.NoOpPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.provisioning.JdbcUserDetailsManager;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import top.kenyon.kenyonsecurity.entity.SysUserEntity;
+import org.springframework.security.web.authentication.session.ConcurrentSessionControlAuthenticationStrategy;
+import org.springframework.security.web.session.ConcurrentSessionFilter;
+import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.session.security.SpringSessionBackedSessionRegistry;
+import top.kenyon.kenyonsecurity.entity.User;
 import top.kenyon.kenyonsecurity.filter.LoginFilter;
+import top.kenyon.kenyonsecurity.service.UserService;
 import top.kenyon.kenyonsecurity.utils.RespBean;
 
 import javax.servlet.ServletException;
@@ -70,23 +74,35 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 //        return manager;
 //    }
 
-    @Autowired
-    DataSource dataSource;
+//    @Autowired
+//    DataSource dataSource;
 
     /**
      * 在数据库中存入可以使用的用户以及用户可以使用的权限
      * 这个数据库的建表语句来源于Spring Security自带的SQL，文件名称为users.ddl
      * @return
      */
+//    @Override
+//    @Bean
+//    protected UserDetailsService userDetailsService() {
+//        JdbcUserDetailsManager manager = new JdbcUserDetailsManager(dataSource);
+//        if(!manager.userExists("kenyon"))
+//            manager.createUser(User.withUsername("kenyon").password("qwe123").roles("admin").build());
+//        if(!manager.userExists("tom"))
+//            manager.createUser(User.withUsername("tom").password("qwe123").roles("user").build());
+//        return manager;
+//    }
+
+    /**
+     * 使用 spring data jpa 进行配置
+     * 使用spring data jpa 进行创建用户以后，以上通过jdbc的配置需要注释
+     */
+    @Autowired
+    UserService userService;
+
     @Override
-    @Bean
-    protected UserDetailsService userDetailsService() {
-        JdbcUserDetailsManager manager = new JdbcUserDetailsManager(dataSource);
-        if(!manager.userExists("kenyon"))
-            manager.createUser(User.withUsername("kenyon").password("qwe123").roles("admin").build());
-        if(!manager.userExists("tom"))
-            manager.createUser(User.withUsername("tom").password("qwe123").roles("user").build());
-        return manager;
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth.userDetailsService(userService);
     }
 
     @Override
@@ -107,9 +123,45 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
                 .defaultSuccessUrl("/hello") //如果我们在 defaultSuccessUrl 中指定登录成功的跳转页面为 /index，此时分两种情况，如果你是直接在浏览器中输入的登录地址，登录成功后，就直接跳转到 /index，如果你是在浏览器中输入了其他地址，例如 http://localhost:8080/hello，结果因为没有登录，又重定向到登录页面，此时登录成功后，就不会来到 /index ，而是来到 /hello 页面。
 //                .successForwardUrl("/hello") //successForwardUrl 表示不管你是从哪里来的，登录后一律跳转到 successForwardUrl 指定的地址。
                 .permitAll()
+//                .and()
+//                .sessionManagement()
+//                .sessionFixation()
+//                .migrateSession()
+//                .and()
+//                .rememberMe()//下次自动登录 前端传入参数为：remember-me:on
                 .and()
-                .csrf().disable();
+                .csrf().disable()
+                .sessionManagement()
+                .maximumSessions(1)//同时只能登录一个用户，后来的登录自动踢掉前面的登录
+                .maxSessionsPreventsLogin(true)
+                .sessionRegistry(sessionRegistry());
+        http.addFilterAt(new ConcurrentSessionFilter(sessionRegistry(), event -> {
+            HttpServletResponse resp = event.getResponse();
+            resp.setContentType("application/json;charset=utf-8");
+            resp.setStatus(401);
+            PrintWriter out = resp.getWriter();
+            out.write(new ObjectMapper().writeValueAsString(RespBean.error("您已在另一台设备登录，本次登录已下线!")));
+            out.flush();
+            out.close();
+        }), ConcurrentSessionFilter.class);
         http.addFilterAt(loginFilter(), UsernamePasswordAuthenticationFilter.class);
+    }
+
+    /**
+     * 用来维护会话信息
+     * @return
+     */
+//    @Bean
+//    SessionRegistryImpl sessionRegistry() {
+//        return new SessionRegistryImpl();
+//    }
+
+    @Autowired
+    FindByIndexNameSessionRepository sessionRepository;
+
+    @Bean
+    SpringSessionBackedSessionRegistry sessionRegistry() {
+        return new SpringSessionBackedSessionRegistry(sessionRepository);
     }
 
     @Bean
@@ -152,6 +204,9 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
         });
         loginFilter.setAuthenticationManager(authenticationManagerBean());
         loginFilter.setFilterProcessesUrl("/doLogin");
+//        ConcurrentSessionControlAuthenticationStrategy sessionStrategy = new ConcurrentSessionControlAuthenticationStrategy(sessionRegistry());
+//        sessionStrategy.setMaximumSessions(1);//同时只能登录一个用户，后来的登录自动踢掉前面的登录
+//        loginFilter.setSessionAuthenticationStrategy(sessionStrategy);
         return loginFilter;
     }
 
